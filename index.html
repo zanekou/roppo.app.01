@@ -339,6 +339,14 @@
                 </label>
 
                 <div class="preset-box">
+                    <button id="btn-export-json" class="btn-sm btn-secondary-alt" title="選択状態や取り込み設定をJSONファイルで保存">設定データ書き出し (JSON)</button>
+                    <label class="btn-sm btn-secondary-alt" style="margin:0; cursor:pointer;">
+                        設定データ読み込み (JSON)
+                        <input type="file" id="input-import-json" accept=".json">
+                    </label>
+                </div>
+
+                <div class="preset-box">
                     <span style="font-size: 0.85em; font-weight: bold; color: #495057;">文字サイズ:</span>
                     <button id="btn-font-shrink" class="btn-sm btn-secondary-alt">小</button>
                     <span id="font-size-val" style="font-size: 0.85em; font-weight: bold; min-width: 40px; text-align: center;">16px</span>
@@ -538,6 +546,10 @@
             unsubscribeCloudSync = window.onSnapshot(userDocRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
+                    if (data.articlesData) {
+                        articlesData = data.articlesData;
+                        localStorage.setItem('roppo_articles_data', JSON.stringify(articlesData));
+                    }
                     if (data.checkedState) {
                         checkedState = data.checkedState;
                         localStorage.setItem('roppo_checked_state_v3', JSON.stringify(checkedState));
@@ -566,6 +578,7 @@
             if (!currentUser) return;
             const userDocRef = window.doc(window.firebaseDb, "users", currentUser.uid);
             const dataToSave = {
+                articlesData: articlesData,
                 checkedState: checkedState,
                 playCounts: playCounts,
                 globalPresets: globalPresets,
@@ -574,6 +587,69 @@
             };
             window.setDoc(userDocRef, dataToSave, { merge: true });
         }
+
+        // ローカルでのインポート・エクスポート機能追加
+        document.getElementById('btn-export-json').addEventListener('click', () => {
+            const data = {
+                articlesData,
+                checkedState,
+                playCounts,
+                globalPresets,
+                lastListenedMap,
+                laws
+            };
+            const jsonStr = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `roppo_backup_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        document.getElementById('input-import-json').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const imported = JSON.parse(event.target.result);
+                    if (imported.articlesData) {
+                        articlesData = imported.articlesData;
+                        localStorage.setItem('roppo_articles_data', JSON.stringify(articlesData));
+                    }
+                    if (imported.checkedState) {
+                        checkedState = imported.checkedState;
+                        localStorage.setItem('roppo_checked_state_v3', JSON.stringify(checkedState));
+                    }
+                    if (imported.playCounts) {
+                        playCounts = imported.playCounts;
+                        localStorage.setItem('roppo_play_counts', JSON.stringify(playCounts));
+                    }
+                    if (imported.globalPresets) {
+                        globalPresets = imported.globalPresets;
+                        localStorage.setItem('roppo_global_presets', JSON.stringify(globalPresets));
+                    }
+                    if (imported.lastListenedMap) {
+                        lastListenedMap = imported.lastListenedMap;
+                        localStorage.setItem('roppo_last_listened_map', JSON.stringify(lastListenedMap));
+                    }
+                    if (imported.laws) {
+                        laws = imported.laws;
+                        localStorage.setItem('roppo_laws_order', JSON.stringify(laws));
+                        renderTabs();
+                    }
+                    saveToCloud();
+                    renderArticles();
+                    alert("設定およびデータをインポートしました。");
+                } catch (err) {
+                    alert("JSONファイルの形式が正しくありません。");
+                }
+            };
+            reader.readAsText(file);
+        });
 
         let resizeTimer = null;
         window.addEventListener('resize', () => {
@@ -805,6 +881,9 @@
 
         fileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files);
+            let updated = false;
+            let readCount = 0;
+
             files.forEach(file => {
                 const fileName = file.name.replace('.json', '');
                 if (laws.some(l => l.key === fileName)) {
@@ -812,11 +891,19 @@
                     reader.onload = (event) => {
                         try {
                             articlesData[fileName] = JSON.parse(event.target.result);
-                            localStorage.setItem('roppo_articles_data', JSON.stringify(articlesData));
-                            if (fileName === currentLawKey) renderArticles();
+                            updated = true;
                         } catch (err) {}
+                        readCount++;
+
+                        if (readCount === files.length && updated) {
+                            localStorage.setItem('roppo_articles_data', JSON.stringify(articlesData));
+                            saveToCloud();
+                            renderArticles();
+                        }
                     };
                     reader.readAsText(file);
+                } else {
+                    readCount++;
                 }
             });
         });
