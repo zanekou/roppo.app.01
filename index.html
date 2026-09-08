@@ -1,0 +1,1541 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>六法全書 読み上げアプリ</title>
+    <!-- Firebase SDK (v10 / Modular Syntax) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // 発行された設定情報を自動組み込み済み
+        const firebaseConfig = {
+            apiKey: "AIzaSyD-R2Wx5eaMfQe2v5Uys7NMxyqoK1wm8kw",
+            authDomain: "roppo-app-01.firebaseapp.com",
+            projectId: "roppo-app-01",
+            storageBucket: "roppo-app-01.firebasestorage.app",
+            messagingSenderId: "439229371224",
+            appId: "1:439229371224:web:3f6259fbf377950e9e8b2d",
+            measurementId: "G-179JJGXEVX"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const provider = new GoogleAuthProvider();
+
+        window.firebaseAuth = auth;
+        window.firebaseDb = db;
+        window.googleProvider = provider;
+        window.signInWithPopup = signInWithPopup;
+        window.signOut = signOut;
+        window.onAuthStateChanged = onAuthStateChanged;
+        window.setDoc = setDoc;
+        window.getDoc = getDoc;
+        window.doc = doc;
+        window.onSnapshot = onSnapshot;
+    </script>
+
+    <style>
+        :root {
+            --base-font-size: 16px;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body { 
+            font-family: sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            background: #f9f9f9; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh; 
+            height: 100dvh; 
+            overflow: hidden; 
+            user-select: none; 
+            font-size: var(--base-font-size); 
+        }
+        header { 
+            background: #fff; 
+            padding: 10px 15px; 
+            border-bottom: 1px solid #ccc; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+            z-index: 10; 
+            flex-shrink: 0; 
+        }
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            gap: 10px;
+        }
+        h1 { margin: 0; font-size: 1.2rem; }
+        .user-auth-area {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .sync-status {
+            font-size: 0.8em;
+            color: #666;
+            background: #f0f0f0;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+            white-space: nowrap;
+        }
+        
+        .tabs { display: flex; gap: 4px; border-bottom: 2px solid #ccc; margin-bottom: 10px; flex-wrap: wrap; align-items: flex-end; }
+        .tab-btn { padding: 6px 12px; border: 1px solid #ccc; border-bottom: none; background: #e9e9e9; cursor: grab; border-radius: 4px 4px 0 0; font-size: 0.9em; transition: background 0.2s, transform 0.1s; }
+        .tab-btn:active { cursor: grabbing; }
+        .tab-btn.active { background: #007bff; color: white; font-weight: bold; border-color: #007bff; }
+        .tab-btn.dragging { opacity: 0.5; }
+        .tab-btn.tab-btn-large { padding: 10px 18px; font-size: 1.1em; font-weight: bold; }
+
+        .controls { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .controls-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 100%; }
+        
+        .main-container { 
+            display: flex; 
+            flex: 1; 
+            overflow: hidden; 
+            position: relative; 
+            width: 100%; 
+        }
+        .sidebar { 
+            background: #fff; 
+            padding: 10px; 
+            overflow-y: auto; 
+            flex-shrink: 0; 
+            width: 260px; 
+        }
+        .sidebar-right { background: #fcfcfc; }
+        .sidebar h3 { font-size: 0.85em; margin: 0 0 8px 0; color: #555; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+        
+        .checked-summary { font-size: 0.85em; font-weight: bold; color: #007bff; background: #e6f7ff; padding: 6px 8px; border-radius: 4px; margin-bottom: 8px; border: 1px solid #bae7ff; }
+
+        .jump-list { list-style: none; padding: 0; margin: 0; }
+        .jump-list li { margin-bottom: 2px; }
+        .jump-list a { display: block; padding: 3px 6px; font-size: 0.85em; color: #007bff; text-decoration: none; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .jump-list a:hover { background: #e6f7ff; text-decoration: underline; }
+        
+        .sidebar-right .jump-list a.playing-item {
+            background-color: #ffecb3 !important;
+            color: #b78103 !important;
+            font-weight: bold;
+            border-left: 3px solid #ff9800;
+        }
+
+        .last-listened-tag {
+            margin-left: 6px;
+            font-size: 0.9em;
+            vertical-align: middle;
+        }
+
+        .toc-part { font-weight: bold; font-size: 0.85em; color: #111; background: #e0e0e0; padding: 4px 6px; margin-top: 10px; border-radius: 3px; }
+        .toc-chapter { font-weight: bold; font-size: 0.82em; color: #333; background: #f0f0f0; padding: 3px 6px; margin-top: 6px; padding-left: 10px; }
+        .toc-section { font-weight: bold; font-size: 0.8em; color: #555; padding-left: 18px; margin-top: 4px; }
+        .toc-subsection { font-style: italic; font-size: 0.78em; color: #666; padding-left: 26px; margin-top: 2px; }
+        .toc-article-link { padding-left: 15px !important; }
+
+        .body-heading { margin: 16px 0 8px 0; border-radius: 4px; font-weight: bold; }
+        .body-part { background: #1e3a8a; color: #ffffff; padding: 8px 12px; font-size: 1.05em; border-left: 6px solid #0f172a; margin-left: 0; }
+        .body-chapter { background: #e0f2fe; color: #0369a1; padding: 6px 10px; font-size: 0.98em; border-left: 5px solid #0284c7; margin-left: 10px; }
+        .body-section { background: #f1f5f9; color: #334155; padding: 5px 8px; font-size: 0.9em; border-left: 4px solid #64748b; margin-left: 20px; }
+        .body-subsection { background: #fafafa; color: #475569; padding: 4px 8px; font-size: 0.85em; border-left: 3px dotted #94a3b8; font-style: italic; margin-left: 30px; }
+
+        .sidebar-right .jump-list a { color: #28a745; }
+        .sidebar-right .jump-list a:hover { background: #e6fffa; }
+        
+        .content { 
+            flex: 1; 
+            padding: 15px; 
+            overflow-y: auto; 
+            min-width: 0; 
+            user-select: text; 
+        }
+        .article { 
+            margin-bottom: 12px; 
+            padding: 12px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            background: #fff; 
+        }
+        
+        .article.indent-0 { margin-left: 0; }
+        .article.indent-1 { margin-left: 10px; }
+        .article.indent-2 { margin-left: 20px; }
+        .article.indent-3 { margin-left: 20px; }
+        .article.indent-4 { margin-left: 40px; }
+
+        .article-title { font-size: 1.05em; font-weight: bold; color: #007bff; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+        
+        .btn-play-single { background: #28a745; color: white; border: none; border-radius: 3px; padding: 2px 6px; font-size: 0.75em; cursor: pointer; line-height: 1.2; white-space: nowrap; flex-shrink: 0; }
+        .btn-play-single:hover { background: #218838; }
+
+        .paragraph-item, .item-element { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; padding: 3px 6px; border-radius: 3px; }
+        .paragraph-item:hover, .item-element:hover { background-color: #f0f7ff; }
+        .paragraph-item.playing, .item-element.playing { background-color: #e6f7ff; border-left: 3px solid #1890ff; font-weight: bold; }
+        
+        .paragraph-num { font-weight: bold; color: #2980b9; white-space: nowrap; }
+        .paragraph-text { color: #222; line-height: 1.5; flex: 1; cursor: pointer; word-break: break-word; }
+        
+        mark.skip-parenthesis { background-color: #e2e8f0; color: #64748b; padding: 0 2px; border-radius: 3px; font-weight: normal; }
+
+        .item-tree { margin: 2px 0; padding-left: 20px; list-style: none; }
+
+        .count-badge { font-size: 0.75em; background: #e2e8f0; color: #475569; padding: 1px 6px; border-radius: 10px; white-space: nowrap; font-weight: normal; }
+        .count-badge.has-count { background: #dbeafe; color: #1e40af; font-weight: bold; }
+
+        .preset-box { display: flex; align-items: center; gap: 6px; background: #f8f9fa; padding: 4px 10px; border-radius: 6px; border: 1px solid #ced4da; }
+        .preset-box select { padding: 4px 8px; border-radius: 4px; font-size: 0.85em; border: 1px solid #ced4da; background-color: #fff; max-width: 200px; }
+
+        footer { background: #2c3e50; color: #fff; padding: 0 15px 10px 15px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 100; flex-shrink: 0; position: relative; }
+        
+        .progress-container { width: calc(100% + 30px); margin-left: -15px; margin-right: -15px; height: 6px; background: rgba(255, 255, 255, 0.2); cursor: pointer; position: relative; }
+        .progress-container:hover { height: 10px; }
+        .progress-bar { height: 100%; background: #ff0000; width: 0%; position: relative; }
+        .progress-bar::after { content: ''; position: absolute; right: -5px; top: 50%; transform: translateY(-50%) scale(0); width: 12px; height: 12px; background: #ff0000; border-radius: 50%; }
+        .progress-container:hover .progress-bar::after { transform: translateY(-50%) scale(1); }
+
+        .player-bar-inner { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: 8px; flex-wrap: wrap; gap: 10px; }
+        .player-left { flex: 1; }
+        .player-center { flex: 1; display: flex; justify-content: center; align-items: center; gap: 15px; }
+        
+        .player-progress-counter {
+            font-size: 0.85em;
+            color: #ecf0f1;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 2px 8px;
+            border-radius: 12px;
+            white-space: nowrap;
+        }
+
+        .player-right { flex: 1; display: flex; justify-content: flex-end; align-items: center; gap: 15px; }
+
+        .audio-settings-inline { display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,0.1); padding: 4px 12px; border-radius: 20px; }
+        .audio-settings-inline label { font-size: 0.8em; display: flex; align-items: center; gap: 4px; }
+        .audio-settings-inline input[type="range"] { width: 65px; }
+
+        .btn-player { border: none; color: white; cursor: pointer; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+        .btn-player-nav { background: #34495e; width: 36px; height: 36px; font-size: 1em; }
+        .btn-player-nav:hover { background: #455a64; }
+        .btn-player-toggle { background: #28a745; width: 44px; height: 44px; font-size: 1.2em; }
+        .btn-player-toggle:hover { background: #218838; }
+        .btn-player-toggle.playing { background: #dc3545; }
+        .btn-player-toggle.paused { background: #ffc107; color: #000; }
+
+        label { cursor: pointer; }
+        button { padding: 6px 14px; cursor: pointer; font-size: 0.9em; }
+        input[type="file"] { display: none; }
+        .btn-sm { padding: 4px 10px; font-size: 0.82em; border-radius: 4px; font-weight: 500; transition: background-color 0.15s; }
+        .btn-primary-sm { background: #007bff; color: white; border: 1px solid #007bff; }
+        .btn-primary-sm:hover { background: #0069d9; }
+        .btn-danger-alt { background: #fff; color: #dc3545; border: 1px solid #dc3545; }
+        .btn-danger-alt:hover { background: #dc3545; color: #fff; }
+        .btn-secondary-alt { background: #fff; color: #495057; border: 1px solid #ced4da; }
+        .btn-secondary-alt:hover { background: #e9ecef; }
+
+        /* モバイル対応用ボトムナビゲーションバー */
+        .mobile-bottom-nav {
+            display: none;
+            background: #ffffff;
+            border-top: 1px solid #ccc;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 200;
+        }
+        .mobile-bottom-nav button {
+            flex: 1;
+            padding: 10px 0;
+            border: none;
+            background: transparent;
+            font-size: 0.85em;
+            font-weight: bold;
+            color: #666;
+        }
+        .mobile-bottom-nav button.active {
+            color: #007bff;
+            border-top: 3px solid #007bff;
+        }
+
+        /* レスポンシブ用メディアクエリ（スマホ向けレイアウト調整） */
+        @media (max-width: 768px) {
+            h1 { font-size: 1rem; }
+            .header-top { flex-direction: column; align-items: flex-start; }
+            .controls-row { flex-direction: column; align-items: stretch; }
+            .preset-box { flex-wrap: wrap; }
+            
+            .main-container {
+                flex-direction: column;
+                margin-bottom: 40px; /* ボトムナビの余白 */
+            }
+            .sidebar {
+                width: 100%;
+                height: 100%;
+                display: none; /* デフォルト非表示 */
+            }
+            .content {
+                display: block;
+                width: 100%;
+                height: 100%;
+            }
+
+            /* スマホで表示切り替え用のアクティブクラス */
+            .main-container.show-left .sidebar-left { display: block; }
+            .main-container.show-left .content,
+            .main-container.show-left .sidebar-right { display: none; }
+
+            .main-container.show-main .content { display: block; }
+            .main-container.show-main .sidebar-left,
+            .main-container.show-main .sidebar-right { display: none; }
+
+            .main-container.show-right .sidebar-right { display: block; }
+            .main-container.show-right .sidebar-left,
+            .main-container.show-right .content { display: none; }
+
+            .mobile-bottom-nav {
+                display: flex;
+            }
+
+            footer {
+                padding-bottom: 45px; /* ボトムナビにかぶらないように移動 */
+            }
+            .player-bar-inner {
+                flex-direction: column;
+                gap: 8px;
+            }
+            .player-left, .player-right {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-top">
+            <h1 id="app-heading">六法全書 読み上げアプリ</h1>
+            <div class="user-auth-area">
+                <div id="sync-status" class="sync-status">同期: ローカル保存</div>
+                <button id="btn-login" class="btn-sm btn-primary-sm">Googleログイン</button>
+                <button id="btn-logout" class="btn-sm btn-secondary-alt" style="display:none;">ログアウト</button>
+            </div>
+        </div>
+        <div class="tabs" id="tab-container"></div>
+
+        <div class="controls">
+            <div class="controls-row">
+                <label style="background: #6c757d; color: white; padding: 6px 12px; border-radius: 4px; font-size: 0.85em; cursor: pointer;">
+                    JSONフォルダ指定/再読み込み
+                    <input type="file" id="file-input" webkitdirectory directory multiple>
+                </label>
+
+                <div class="preset-box">
+                    <span style="font-size: 0.85em; font-weight: bold; color: #495057;">文字サイズ:</span>
+                    <button id="btn-font-shrink" class="btn-sm btn-secondary-alt">小</button>
+                    <span id="font-size-val" style="font-size: 0.85em; font-weight: bold; min-width: 40px; text-align: center;">16px</span>
+                    <button id="btn-font-enlarge" class="btn-sm btn-secondary-alt">大</button>
+                    <button id="btn-font-reset" class="btn-sm btn-secondary-alt" style="margin-left:2px;">標準</button>
+                </div>
+
+                <div class="preset-box">
+                    <span style="font-size: 0.85em; font-weight: bold; color: #495057;">全科目一括保存:</span>
+                    <button id="btn-save-preset" class="btn-sm btn-secondary-alt">新規保存</button>
+                    <select id="select-preset">
+                        <option value="">-- 保存データ一覧 --</option>
+                    </select>
+                    <button id="btn-load-preset" class="btn-sm btn-primary-sm">読込</button>
+                    <button id="btn-delete-preset" class="btn-sm btn-danger-alt">削除</button>
+                </div>
+
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button id="btn-reset-count" class="btn-secondary-alt">再生回数をリセット</button>
+                    <button id="btn-select-all" class="btn-danger-alt">すべて選択/全解除</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="main-container show-main" id="main-container">
+        <div class="sidebar sidebar-left" id="sidebar-left">
+            <h3>目次 / 条文ジャンプ</h3>
+            <ul class="jump-list" id="jump-list"></ul>
+        </div>
+
+        <div class="content" id="content-area">
+            <div id="article-list"></div>
+        </div>
+
+        <div class="sidebar sidebar-right" id="sidebar-right">
+            <h3>選択中の項目/号</h3>
+            <div class="checked-summary" id="checked-summary">選択中: 0 条（0 項目）</div>
+            <ul class="jump-list" id="checked-jump-list"></ul>
+        </div>
+    </div>
+
+    <!-- スマホ専用画面切替ナビ -->
+    <div class="mobile-bottom-nav" id="mobile-nav">
+        <button id="nav-left" onclick="switchMobileView('left')">目次</button>
+        <button id="nav-main" class="active" onclick="switchMobileView('main')">条文本文</button>
+        <button id="nav-right" onclick="switchMobileView('right')">選択一覧</button>
+    </div>
+
+    <footer>
+        <div class="progress-container" id="progress-container" title="クリックしてシーク">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+
+        <div class="player-bar-inner">
+            <div class="player-left"></div>
+
+            <div class="player-center">
+                <button id="btn-prev" class="btn-player btn-player-nav" title="前へ">⏮</button>
+                <button id="btn-toggle-play" class="btn-player btn-player-toggle" title="再生/一時停止">▶</button>
+                <button id="btn-next" class="btn-player btn-player-nav" title="次へ">⏭</button>
+                <div class="player-progress-counter" id="progress-counter">0項目目 / 0項目中</div>
+            </div>
+
+            <div class="player-right">
+                <div class="audio-settings-inline">
+                    <label>
+                        音量: <span id="volume-val" style="font-weight:bold; color:#ffb74d;">1.0</span>
+                        <input type="range" id="volume-range" min="0.0" max="1.0" step="0.1" value="1.0">
+                    </label>
+                    <label>
+                        速度: <span id="rate-val" style="font-weight:bold; color:#64b5f6;">1.0</span>倍
+                        <input type="range" id="rate-range" min="0.5" max="10.0" step="0.5" value="1.0">
+                    </label>
+                    <label>
+                        高さ: <span id="pitch-val" style="font-weight:bold; color:#81c784;">1.0</span>
+                        <input type="range" id="pitch-range" min="0.5" max="1.5" step="0.1" value="1.0">
+                    </label>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const defaultLaws = [
+            { key: "constitution", name: "憲法", isLarge: true },
+            { key: "administrative_proc", name: "行政手続法", isLarge: true },
+            { key: "administrative_appeal", name: "行政不服審査法", isLarge: true },
+            { key: "administrative_litigation", name: "行政事件訴訟法", isLarge: true },
+            { key: "civil", name: "民法", isLarge: true },
+            { key: "land_lease_and_building_lease", name: "借地借家法", isLarge: false },
+            { key: "companies", name: "会社法", isLarge: true },
+            { key: "civil_procedure", name: "民事訴訟法", isLarge: true },
+            { key: "penal", name: "刑法", isLarge: true },
+            { key: "criminal_procedure", name: "刑事訴訟法", isLarge: true }
+        ];
+
+        let laws = JSON.parse(localStorage.getItem('roppo_laws_order')) || defaultLaws;
+        let currentLawKey = laws[0] ? laws[0].key : "constitution";
+        let articlesData = JSON.parse(localStorage.getItem('roppo_articles_data') || '{}'); 
+        let checkedState = JSON.parse(localStorage.getItem('roppo_checked_state_v3') || '{}');
+        let playCounts = JSON.parse(localStorage.getItem('roppo_play_counts') || '{}');
+        let globalPresets = JSON.parse(localStorage.getItem('roppo_global_presets') || '{}');
+        let lastListenedMap = JSON.parse(localStorage.getItem('roppo_last_listened_map') || '{}');
+
+        let currentUser = null;
+        let unsubscribeCloudSync = null;
+
+        let savedVolume = localStorage.getItem('roppo_speech_volume') || '1.0';
+        let savedRate = localStorage.getItem('roppo_speech_rate') || '1.0';
+        let savedPitch = localStorage.getItem('roppo_speech_pitch') || '1.0';
+        let currentFontSize = parseInt(localStorage.getItem('roppo_font_size') || '16', 10);
+
+        let synth = window.speechSynthesis;
+        let isPlaying = false;
+        let isPaused = false;
+        let currentIndex = 0;
+        let activeCheckboxes = [];
+        let isManualCancel = false;
+
+        let currentUtteranceText = "";
+        let currentTextPosition = 0;
+        let updateSidebarTimer = null;
+
+        const mainContainer = document.getElementById('main-container');
+        const tabContainer = document.getElementById('tab-container');
+        const listContainer = document.getElementById('article-list');
+        const jumpListContainer = document.getElementById('jump-list');
+        const checkedJumpListContainer = document.getElementById('checked-jump-list');
+        const checkedSummary = document.getElementById('checked-summary');
+        const progressCounter = document.getElementById('progress-counter');
+        const syncStatus = document.getElementById('sync-status');
+        
+        const btnLogin = document.getElementById('btn-login');
+        const btnLogout = document.getElementById('btn-logout');
+
+        const volumeRange = document.getElementById('volume-range');
+        const volumeVal = document.getElementById('volume-val');
+        const rateRange = document.getElementById('rate-range');
+        const rateVal = document.getElementById('rate-val');
+        const pitchRange = document.getElementById('pitch-range');
+        const pitchVal = document.getElementById('pitch-val');
+        const fileInput = document.getElementById('file-input');
+
+        const selectPreset = document.getElementById('select-preset');
+        const btnTogglePlay = document.getElementById('btn-toggle-play');
+        const progressBar = document.getElementById('progress-bar');
+        const progressContainer = document.getElementById('progress-container');
+
+        // スマホビューの切替機能
+        window.switchMobileView = function(view) {
+            mainContainer.className = `main-container show-${view}`;
+            document.querySelectorAll('.mobile-bottom-nav button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`nav-${view}`).classList.add('active');
+        };
+
+        // Firebase Auth 連携処理
+        window.addEventListener('DOMContentLoaded', () => {
+            const checkAuthLoop = setInterval(() => {
+                if (window.firebaseAuth) {
+                    clearInterval(checkAuthLoop);
+                    
+                    window.onAuthStateChanged(window.firebaseAuth, (user) => {
+                        if (user) {
+                            currentUser = user;
+                            btnLogin.style.display = 'none';
+                            btnLogout.style.display = 'inline-block';
+                            syncStatus.textContent = `同期: クラウド (${user.displayName || 'ログイン済'})`;
+                            setupCloudSync(user.uid);
+                        } else {
+                            currentUser = null;
+                            btnLogin.style.display = 'inline-block';
+                            btnLogout.style.display = 'none';
+                            syncStatus.textContent = '同期: ローカル保存';
+                            if (unsubscribeCloudSync) unsubscribeCloudSync();
+                        }
+                    });
+                }
+            }, 100);
+        });
+
+        btnLogin.addEventListener('click', () => {
+            window.signInWithPopup(window.firebaseAuth, window.googleProvider).catch((err) => {
+                alert("ログインに失敗しました: " + err.message);
+            });
+        });
+
+        btnLogout.addEventListener('click', () => {
+            window.signOut(window.firebaseAuth);
+        });
+
+        // クラウド（Firestore）同期リスナーの設定
+        function setupCloudSync(uid) {
+            const userDocRef = window.doc(window.firebaseDb, "users", uid);
+            
+            // クラウド上のデータをリアルタイム監視
+            unsubscribeCloudSync = window.onSnapshot(userDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.checkedState) {
+                        checkedState = data.checkedState;
+                        localStorage.setItem('roppo_checked_state_v3', JSON.stringify(checkedState));
+                    }
+                    if (data.playCounts) {
+                        playCounts = data.playCounts;
+                        localStorage.setItem('roppo_play_counts', JSON.stringify(playCounts));
+                    }
+                    if (data.globalPresets) {
+                        globalPresets = data.globalPresets;
+                        localStorage.setItem('roppo_global_presets', JSON.stringify(globalPresets));
+                    }
+                    if (data.lastListenedMap) {
+                        lastListenedMap = data.lastListenedMap;
+                        localStorage.setItem('roppo_last_listened_map', JSON.stringify(lastListenedMap));
+                    }
+                    renderArticles();
+                } else {
+                    // クラウドに初回データを作成
+                    saveToCloud();
+                }
+            });
+        }
+
+        function saveToCloud() {
+            if (!currentUser) return;
+            const userDocRef = window.doc(window.firebaseDb, "users", currentUser.uid);
+            const dataToSave = {
+                checkedState: checkedState,
+                playCounts: playCounts,
+                globalPresets: globalPresets,
+                lastListenedMap: lastListenedMap,
+                updatedAt: new Date().toISOString()
+            };
+            window.setDoc(userDocRef, dataToSave, { merge: true });
+        }
+
+        let resizeTimer = null;
+        window.addEventListener('resize', () => {
+            if (resizeTimer) clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (isPlaying || isPaused) {
+                    const activeElem = listContainer.querySelector('.paragraph-item.playing, .item-element.playing');
+                    if (activeElem) {
+                        activeElem.scrollIntoView({ behavior: 'auto', block: 'center' });
+                    }
+                }
+            }, 300);
+        });
+
+        window.addEventListener('keydown', (e) => {
+            const targetTag = e.target.tagName.toLowerCase();
+            if (targetTag === 'input' || targetTag === 'select' || targetTag === 'textarea' || e.target.isContentEditable) {
+                return;
+            }
+
+            if (e.code === 'Space') {
+                e.preventDefault();
+                togglePlayStop();
+            } else if (e.code === 'ArrowRight') {
+                e.preventDefault();
+                skipNext();
+            } else if (e.code === 'ArrowLeft') {
+                e.preventDefault();
+                skipPrev();
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            saveCurrentPlayingPosition();
+        });
+
+        function saveCurrentPlayingPosition() {
+            if (activeCheckboxes[currentIndex]) {
+                const currentKey = activeCheckboxes[currentIndex].dataset.key;
+                if (currentKey) {
+                    lastListenedMap[currentLawKey] = currentKey;
+                    localStorage.setItem('roppo_last_listened_map', JSON.stringify(lastListenedMap));
+                    saveToCloud();
+                }
+            }
+        }
+
+        function applyFontSize(size) {
+            currentFontSize = Math.max(12, Math.min(28, size));
+            document.documentElement.style.setProperty('--base-font-size', `${currentFontSize}px`);
+            document.getElementById('font-size-val').textContent = `${currentFontSize}px`;
+            localStorage.setItem('roppo_font_size', currentFontSize);
+        }
+
+        document.getElementById('btn-font-enlarge').addEventListener('click', () => applyFontSize(currentFontSize + 1));
+        document.getElementById('btn-font-shrink').addEventListener('click', () => applyFontSize(currentFontSize - 1));
+        document.getElementById('btn-font-reset').addEventListener('click', () => applyFontSize(16));
+        
+        applyFontSize(currentFontSize);
+
+        volumeRange.value = savedVolume;
+        volumeVal.textContent = parseFloat(savedVolume).toFixed(1);
+        rateRange.value = savedRate;
+        rateVal.textContent = parseFloat(savedRate).toFixed(1);
+        pitchRange.value = savedPitch;
+        pitchVal.textContent = savedPitch;
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function removeParentheses(str) {
+            if (!str) return '';
+            let prev = '';
+            let current = str;
+            while (prev !== current) {
+                prev = current;
+                current = current.replace(/（[^（）]*）|\([^()]*\)/g, '');
+            }
+            return current;
+        }
+
+        function highlightParentheses(str) {
+            if (!str) return '';
+            let result = '';
+            let i = 0;
+            const len = str.length;
+            while (i < len) {
+                let char = str[i];
+                if (char === '（' || char === '(') {
+                    let closeChar = (char === '（') ? '）' : ')';
+                    let depth = 1;
+                    let j = i + 1;
+                    while (j < len && depth > 0) {
+                        if (str[j] === char) depth++;
+                        else if (str[j] === closeChar) depth--;
+                        j++;
+                    }
+                    if (depth === 0) {
+                        let inside = str.substring(i + 1, j - 1);
+                        result += '<mark class="skip-parenthesis">' + char + highlightParentheses(inside) + closeChar + '</mark>';
+                        i = j;
+                        continue;
+                    }
+                }
+                result += escapeHtml(char);
+                i++;
+            }
+            return result;
+        }
+
+        function renderItemsRecursively(items, baseKey, artId, titleText, currentChecked) {
+            if (!items || !Array.isArray(items) || items.length === 0) return '';
+            
+            let html = '<ul class="item-tree">';
+            for (let idx = 0; idx < items.length; idx++) {
+                const it = items[idx];
+                const itemKey = `${baseKey}-i-${idx}`;
+                let itemMainText = "";
+                let childItems = [];
+
+                if (typeof it === 'string') {
+                    itemMainText = it;
+                } else if (typeof it === 'object' && it !== null) {
+                    itemMainText = it.text || it.title || it.content || '';
+                    childItems = it.subItems || it.items || it.children || [];
+                }
+
+                const isChecked = currentChecked.has(itemKey);
+                const itemSpeech = removeParentheses(`${titleText} ${itemMainText}`);
+                const itemDisplay = highlightParentheses(itemMainText);
+                const iCount = getPlayCount(itemKey);
+
+                html += `
+                    <li>
+                        <div class="item-element" id="elem-${itemKey}">
+                            <input type="checkbox" class="selectable-check child-of-${artId}" data-art-id="${artId}" data-key="${itemKey}" data-label="${escapeHtml(titleText)} 項目" data-text="${escapeHtml(itemSpeech)}" ${isChecked ? 'checked' : ''}>
+                            <div class="paragraph-text" data-action="play-single" data-key="${itemKey}">${itemDisplay}</div>
+                            <button class="btn-play-single" data-action="play-single" data-key="${itemKey}">▶ 再生</button>
+                            <span class="count-badge ${iCount > 0 ? 'has-count' : ''}" id="badge-${itemKey}">${iCount}回</span>
+                        </div>
+                        ${renderItemsRecursively(childItems, itemKey, artId, titleText, currentChecked)}
+                    </li>`;
+            }
+            html += '</ul>';
+            return html;
+        }
+
+        function applySpeechSettingChange() {
+            if ((isPlaying || isPaused) && currentUtteranceText) {
+                speakUtteranceFromIndex(currentUtteranceText, currentTextPosition);
+            }
+        }
+
+        volumeRange.addEventListener('input', () => {
+            const val = parseFloat(volumeRange.value).toFixed(1);
+            volumeVal.textContent = val;
+            localStorage.setItem('roppo_speech_volume', val);
+            applySpeechSettingChange();
+        });
+
+        rateRange.addEventListener('input', () => {
+            const val = parseFloat(rateRange.value).toFixed(1);
+            rateVal.textContent = val;
+            localStorage.setItem('roppo_speech_rate', val);
+            applySpeechSettingChange();
+        });
+
+        pitchRange.addEventListener('input', () => {
+            pitchVal.textContent = pitchRange.value;
+            localStorage.setItem('roppo_speech_pitch', pitchRange.value);
+            applySpeechSettingChange();
+        });
+
+        function renderTabs() {
+            const frag = document.createDocumentFragment();
+            laws.forEach((law, index) => {
+                const btn = document.createElement('button');
+                btn.className = `tab-btn ${law.key === currentLawKey ? 'active' : ''} ${law.isLarge ? 'tab-btn-large' : ''}`;
+                btn.textContent = law.name;
+                btn.draggable = true;
+                btn.dataset.index = index;
+
+                btn.onclick = () => switchTab(law.key);
+
+                btn.addEventListener('dragstart', handleDragStart);
+                btn.addEventListener('dragover', handleDragOver);
+                btn.addEventListener('drop', handleDrop);
+                btn.addEventListener('dragend', handleDragEnd);
+
+                frag.appendChild(btn);
+            });
+            tabContainer.innerHTML = '';
+            tabContainer.appendChild(frag);
+        }
+
+        let draggedIndex = null;
+
+        function handleDragStart(e) {
+            draggedIndex = +this.dataset.index;
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            const targetIndex = +this.dataset.index;
+            if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+            const movedItem = laws.splice(draggedIndex, 1)[0];
+            laws.splice(targetIndex, 0, movedItem);
+
+            localStorage.setItem('roppo_laws_order', JSON.stringify(laws));
+            renderTabs();
+        }
+
+        function handleDragEnd() {
+            this.classList.remove('dragging');
+            draggedIndex = null;
+        }
+
+        renderTabs();
+
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            files.forEach(file => {
+                const fileName = file.name.replace('.json', '');
+                if (laws.some(l => l.key === fileName)) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        try {
+                            articlesData[fileName] = JSON.parse(event.target.result);
+                            localStorage.setItem('roppo_articles_data', JSON.stringify(articlesData));
+                            if (fileName === currentLawKey) renderArticles();
+                        } catch (err) {}
+                    };
+                    reader.readAsText(file);
+                }
+            });
+        });
+
+        function getPlayCount(key) {
+            if (!playCounts[currentLawKey]) return 0;
+            return playCounts[currentLawKey][key] || 0;
+        }
+
+        function incrementPlayCount(key) {
+            if (!playCounts[currentLawKey]) playCounts[currentLawKey] = {};
+            playCounts[currentLawKey][key] = (playCounts[currentLawKey][key] || 0) + 1;
+            localStorage.setItem('roppo_play_counts', JSON.stringify(playCounts));
+            saveToCloud();
+
+            const badge = document.getElementById(`badge-${key}`);
+            if (badge) {
+                const count = playCounts[currentLawKey][key];
+                badge.textContent = `${count}回`;
+                badge.className = `count-badge ${count > 0 ? 'has-count' : ''}`;
+            }
+        }
+
+        const kanjiMap = { '〇': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+        function kanjiToArabic(str) {
+            if (!str) return '';
+            return str.replace(/([一二三四五六七八九十百千]+)/g, (match) => {
+                let total = 0, tmp = 0;
+                for (let i = 0; i < match.length; i++) {
+                    const char = match[i];
+                    if (kanjiMap[char] !== undefined) tmp = kanjiMap[char];
+                    else if (char === '十') { total += (tmp === 0 ? 1 : tmp) * 10; tmp = 0; }
+                    else if (char === '百') { total += (tmp === 0 ? 1 : tmp) * 100; tmp = 0; }
+                    else if (char === '千') { total += (tmp === 0 ? 1 : tmp) * 1000; tmp = 0; }
+                }
+                return total + tmp;
+            }).replace(/ノ/g, 'の');
+        }
+
+        document.getElementById('btn-save-preset').addEventListener('click', () => {
+            saveCheckedState();
+            const hasAnyChecked = Object.values(checkedState).some(arr => arr && arr.length > 0);
+            if (!hasAnyChecked) { alert("保存する項目が1つも選択されていません。"); return; }
+
+            const name = prompt("全科目の選択セットの保存名を入力してください:", `全科目選択_${new Date().toLocaleDateString()}`);
+            if (!name) return;
+
+            globalPresets[name] = JSON.parse(JSON.stringify(checkedState));
+            localStorage.setItem('roppo_global_presets', JSON.stringify(globalPresets));
+            saveToCloud();
+            updatePresetDropdown();
+            selectPreset.value = name;
+            alert(`「${name}」として全科目の選択状態を保存しました。`);
+        });
+
+        document.getElementById('btn-load-preset').addEventListener('click', () => {
+            const selectedName = selectPreset.value;
+            if (!selectedName || !globalPresets[selectedName]) { alert("読み込む保存データを選択してください。"); return; }
+
+            checkedState = JSON.parse(JSON.stringify(globalPresets[selectedName]));
+            localStorage.setItem('roppo_checked_state_v3', JSON.stringify(checkedState));
+            saveToCloud();
+            renderArticles();
+            alert(`「${selectedName}」の全科目選択データを読み込みました。`);
+        });
+
+        document.getElementById('btn-delete-preset').addEventListener('click', () => {
+            const selectedName = selectPreset.value;
+            if (!selectedName) return;
+            if (confirm(`「${selectedName}」を削除してもよろしいですか？`)) {
+                delete globalPresets[selectedName];
+                localStorage.setItem('roppo_global_presets', JSON.stringify(globalPresets));
+                saveToCloud();
+                updatePresetDropdown();
+            }
+        });
+
+        function updatePresetDropdown() {
+            const frag = document.createDocumentFragment();
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = "";
+            defaultOpt.textContent = "-- 保存データ一覧 --";
+            frag.appendChild(defaultOpt);
+
+            Object.keys(globalPresets).forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                frag.appendChild(opt);
+            });
+            selectPreset.innerHTML = '';
+            selectPreset.appendChild(frag);
+        }
+
+        function renderArticles() {
+            listContainer.innerHTML = '';
+            jumpListContainer.innerHTML = '';
+            const lawPackage = articlesData[currentLawKey];
+
+            updatePresetDropdown();
+
+            if (!lawPackage || (!lawPackage.articles && !Array.isArray(lawPackage))) {
+                listContainer.innerHTML = `
+                    <div style="padding: 20px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px;">
+                        <p style="margin: 0 0 10px 0; font-weight: bold;">データが読み込まれていません。</p>
+                        <p style="margin: 0;">「<strong>JSONフォルダ指定/再読み込み</strong>」ボタンから変換済みの <strong>data</strong> フォルダを選択してください。</p>
+                    </div>`;
+                updateCheckedSideBar();
+                updateActiveCheckboxesList();
+                return;
+            }
+
+            const articles = lawPackage.articles || lawPackage;
+            const currentChecked = new Set(checkedState[currentLawKey] || []);
+            let currentPart = "", currentChapter = "", currentSection = "", currentSubSection = "";
+
+            const mainFrag = document.createDocumentFragment();
+            const jumpFrag = document.createDocumentFragment();
+
+            if (lawPackage.preamble && lawPackage.preamble.length > 0) {
+                const preambleDiv = document.createElement('div');
+                preambleDiv.className = 'article indent-0';
+                preambleDiv.style.borderLeft = '4px solid #3498db';
+                
+                let preambleHtml = `<div class="article-title">前文</div>`;
+
+                lawPackage.preamble.forEach((pText, pIdx) => {
+                    const checkKey = `preamble-p-${pIdx}`;
+                    const isChecked = currentChecked.has(checkKey);
+                    const count = getPlayCount(checkKey);
+                    const speechText = removeParentheses(`前文。${pText}`);
+                    const displayText = highlightParentheses(pText);
+
+                    preambleHtml += `
+                        <div class="paragraph-item" id="elem-${checkKey}">
+                            <input type="checkbox" class="selectable-check child-of-preamble" data-art-id="preamble" data-key="${checkKey}" data-label="前文 第${pIdx+1}節" data-text="${escapeHtml(speechText)}" ${isChecked ? 'checked' : ''}>
+                            <div class="paragraph-text" data-action="play-single" data-key="${checkKey}">${displayText}</div>
+                            <button class="btn-play-single" data-action="play-single" data-key="${checkKey}">▶ 再生</button>
+                            <span class="count-badge ${count > 0 ? 'has-count' : ''}" id="badge-${checkKey}">${count}回</span>
+                        </div>`;
+                });
+                preambleDiv.innerHTML = preambleHtml;
+                mainFrag.appendChild(preambleDiv);
+            }
+
+            for (let artIdx = 0; artIdx < articles.length; artIdx++) {
+                const art = articles[artIdx];
+
+                if (art.part && art.part !== currentPart) {
+                    currentPart = art.part; currentChapter = ""; currentSection = ""; currentSubSection = "";
+                    const li = document.createElement('li'); li.className = 'toc-part'; li.textContent = currentPart; jumpFrag.appendChild(li);
+                    const hDiv = document.createElement('div'); hDiv.className = 'body-heading body-part'; hDiv.textContent = currentPart; mainFrag.appendChild(hDiv);
+                }
+
+                if (art.chapter && art.chapter !== currentChapter) {
+                    currentChapter = art.chapter; currentSection = ""; currentSubSection = "";
+                    const li = document.createElement('li'); li.className = 'toc-chapter'; li.textContent = currentChapter; jumpFrag.appendChild(li);
+                    const hDiv = document.createElement('div'); hDiv.className = 'body-heading body-chapter'; hDiv.textContent = currentChapter; mainFrag.appendChild(hDiv);
+                }
+
+                if (art.section && art.section !== currentSection) {
+                    currentSection = art.section; currentSubSection = "";
+                    const li = document.createElement('li'); li.className = 'toc-section'; li.textContent = currentSection; jumpFrag.appendChild(li);
+                    const hDiv = document.createElement('div'); hDiv.className = 'body-heading body-section'; hDiv.textContent = currentSection; mainFrag.appendChild(hDiv);
+                }
+
+                if (art.subsection && art.subsection !== currentSubSection) {
+                    currentSubSection = art.subsection;
+                    const li = document.createElement('li'); li.className = 'toc-subsection'; li.textContent = currentSubSection; jumpFrag.appendChild(li);
+                    const hDiv = document.createElement('div'); hDiv.className = 'body-heading body-subsection'; hDiv.textContent = currentSubSection; mainFrag.appendChild(hDiv);
+                }
+
+                let currentIndentLevel = 0;
+                if (art.part) currentIndentLevel = 1;
+                if (art.chapter) currentIndentLevel = 2;
+                if (art.section) currentIndentLevel = 3;
+                if (art.subsection) currentIndentLevel = 4;
+
+                const titleText = art.articleTitle || art.title || `第${artIdx + 1}条`;
+                const artId = `art-${artIdx}`;
+
+                const div = document.createElement('div');
+                div.className = `article indent-${currentIndentLevel}`;
+                div.id = artId;
+
+                const paragraphs = art.paragraphs || [];
+                const isSingleParagraph = (paragraphs.length <= 1);
+
+                let bodyHtml = '';
+
+                if (isSingleParagraph && paragraphs.length === 1) {
+                    const p = paragraphs[0];
+                    const pKey = `art-${artIdx}-p-0`;
+                    const isChecked = currentChecked.has(pKey);
+                    const count = getPlayCount(pKey);
+                    const speechText = removeParentheses(`${titleText}。${p.text}`);
+                    const displayText = highlightParentheses(p.text);
+
+                    bodyHtml += `
+                        <div class="article-title">
+                            <span>${escapeHtml(titleText)}</span>
+                        </div>
+                        <div class="paragraph-item" id="elem-${pKey}">
+                            <input type="checkbox" class="selectable-check child-of-art-${artIdx}" data-art-id="${artId}" data-key="${pKey}" data-label="${escapeHtml(titleText)}" data-text="${escapeHtml(speechText)}" ${isChecked ? 'checked' : ''}>
+                            <div class="paragraph-text" data-action="play-single" data-key="${pKey}">${displayText}</div>
+                            <button class="btn-play-single" data-action="play-single" data-key="${pKey}">▶ 再生</button>
+                            <span class="count-badge ${count > 0 ? 'has-count' : ''}" id="badge-${pKey}">${count}回</span>
+                        </div>`;
+
+                    if (p.items || p.subItems || p.children) {
+                        const itemsArr = p.items || p.subItems || p.children;
+                        bodyHtml += renderItemsRecursively(itemsArr, pKey, artId, titleText, currentChecked);
+                    }
+
+                } else if (!isSingleParagraph) {
+                    bodyHtml += `
+                        <div class="article-title">
+                            <input type="checkbox" class="parent-article-check" data-art-idx="${artIdx}">
+                            <span>${escapeHtml(titleText)}</span>
+                        </div>`;
+
+                    paragraphs.forEach((p, pIdx) => {
+                        const pKey = `art-${artIdx}-p-${pIdx}`;
+                        const isPChecked = currentChecked.has(pKey);
+                        const paraName = p.num ? `第${p.num}項` : '';
+                        const pSpeech = removeParentheses(`${titleText} ${paraName}。${p.text}`);
+                        const pDisplay = highlightParentheses(p.text);
+                        const pLabel = `${titleText} ${paraName}`;
+                        const count = getPlayCount(pKey);
+
+                        bodyHtml += `
+                            <div class="paragraph-item" id="elem-${pKey}">
+                                <input type="checkbox" class="selectable-check child-of-art-${artIdx}" data-art-id="${artId}" data-key="${pKey}" data-label="${escapeHtml(pLabel)}" data-text="${escapeHtml(pSpeech)}" ${isPChecked ? 'checked' : ''}>
+                                ${p.num ? `<span class="paragraph-num">${escapeHtml(p.num)}</span>` : ''}
+                                <div class="paragraph-text" data-action="play-single" data-key="${pKey}">${pDisplay}</div>
+                                <button class="btn-play-single" data-action="play-single" data-key="${pKey}">▶ 再生</button>
+                                <span class="count-badge ${count > 0 ? 'has-count' : ''}" id="badge-${pKey}">${count}回</span>
+                            </div>`;
+
+                        if (p.items || p.subItems || p.children) {
+                            const itemsArr = p.items || p.subItems || p.children;
+                            bodyHtml += renderItemsRecursively(itemsArr, pKey, artId, titleText, currentChecked);
+                        }
+                    });
+                } else if (art.text) {
+                    const fallbackKey = `art-${artIdx}-text`;
+                    const isFChecked = currentChecked.has(fallbackKey);
+                    const fCount = getPlayCount(fallbackKey);
+                    const speechText = removeParentheses(`${titleText}。${art.text}`);
+                    const displayText = highlightParentheses(art.text);
+
+                    bodyHtml += `
+                        <div class="article-title">
+                            <span>${escapeHtml(titleText)}</span>
+                        </div>
+                        <div class="paragraph-item" id="elem-${fallbackKey}">
+                            <input type="checkbox" class="selectable-check child-of-art-${artIdx}" data-art-id="${artId}" data-key="${fallbackKey}" data-label="${escapeHtml(titleText)}" data-text="${escapeHtml(speechText)}" ${isFChecked ? 'checked' : ''}>
+                            <div class="paragraph-text" data-action="play-single" data-key="${fallbackKey}">${displayText}</div>
+                            <button class="btn-play-single" data-action="play-single" data-key="${fallbackKey}">▶ 再生</button>
+                            <span class="count-badge ${fCount > 0 ? 'has-count' : ''}" id="badge-${fallbackKey}">${fCount}回</span>
+                        </div>`;
+                }
+
+                div.innerHTML = bodyHtml;
+                mainFrag.appendChild(div);
+
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = `#art-${artIdx}`;
+                a.textContent = kanjiToArabic(titleText);
+                a.className = 'toc-article-link';
+                a.onclick = (e) => {
+                    e.preventDefault();
+                    if (window.innerWidth <= 768) switchMobileView('main');
+                    document.getElementById(`art-${artIdx}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+                };
+                li.appendChild(a);
+                jumpFrag.appendChild(li);
+            }
+
+            listContainer.appendChild(mainFrag);
+            jumpListContainer.appendChild(jumpFrag);
+
+            scheduleSidebarUpdate();
+            updateActiveCheckboxesList();
+        }
+
+        listContainer.onclick = function(e) {
+            const target = e.target;
+            const action = target.dataset.action;
+
+            if (action === 'play-single') {
+                playSingleItem(target.dataset.key);
+                return;
+            }
+
+            if (target.classList.contains('parent-article-check')) {
+                const artIdx = target.dataset.artIdx;
+                const children = listContainer.querySelectorAll(`.child-of-art-${artIdx}`);
+                children.forEach(c => c.checked = target.checked);
+                saveCheckedState();
+                scheduleSidebarUpdate();
+                updateActiveCheckboxesList();
+            } else if (target.classList.contains('selectable-check')) {
+                saveCheckedState();
+                scheduleSidebarUpdate();
+                updateActiveCheckboxesList();
+            }
+        };
+
+        function scheduleSidebarUpdate() {
+            if (updateSidebarTimer) clearTimeout(updateSidebarTimer);
+            updateSidebarTimer = setTimeout(updateCheckedSideBar, 50);
+        }
+
+        function updateCheckedSideBar() {
+            const checkedBoxes = listContainer.querySelectorAll('.selectable-check:checked');
+            const uniqueArticleIds = new Set();
+            const maxDisplayLimit = 150;
+
+            checkedSummary.textContent = `選択中: 0 条（${checkedBoxes.length} 項目）`;
+            checkedJumpListContainer.innerHTML = '';
+
+            if (checkedBoxes.length === 0) return;
+
+            const frag = document.createDocumentFragment();
+            const limit = Math.min(checkedBoxes.length, maxDisplayLimit);
+
+            const lastListenedKey = lastListenedMap[currentLawKey];
+
+            for (let i = 0; i < limit; i++) {
+                const chk = checkedBoxes[i];
+                const artId = chk.dataset.artId;
+                if (artId) uniqueArticleIds.add(artId);
+
+                const key = chk.dataset.key;
+                const rawLabel = chk.dataset.label || chk.dataset.text.substring(0, 15) + '...';
+                const label = kanjiToArabic(rawLabel);
+
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = `#elem-${key}`;
+                a.textContent = label;
+                a.dataset.key = key;
+
+                if (lastListenedKey && key === lastListenedKey) {
+                    const tagSpan = document.createElement('span');
+                    tagSpan.className = 'last-listened-tag';
+                    tagSpan.textContent = '🔖';
+                    tagSpan.title = '前回まで聞いていた項目';
+                    a.appendChild(tagSpan);
+                }
+
+                a.onclick = (e) => {
+                    e.preventDefault();
+                    if (window.innerWidth <= 768) switchMobileView('main');
+                    playSingleItem(key);
+                };
+                li.appendChild(a);
+                frag.appendChild(li);
+            }
+
+            if (checkedBoxes.length > maxDisplayLimit) {
+                for (let i = maxDisplayLimit; i < checkedBoxes.length; i++) {
+                    const artId = checkedBoxes[i].dataset.artId;
+                    if (artId) uniqueArticleIds.add(artId);
+                }
+                const li = document.createElement('li');
+                li.style.cssText = "color:#888; font-size:0.8em; padding:4px;";
+                li.textContent = `...他 ${checkedBoxes.length - maxDisplayLimit} 項目省略`;
+                frag.appendChild(li);
+            }
+
+            checkedSummary.textContent = `選択中: ${uniqueArticleIds.size} 条（${checkedBoxes.length} 項目）`;
+            checkedJumpListContainer.appendChild(frag);
+
+            if (isPlaying || isPaused) {
+                highlightSidebarItem();
+            }
+        }
+
+        function highlightSidebarItem() {
+            const sidebarLinks = checkedJumpListContainer.querySelectorAll('a');
+            sidebarLinks.forEach(a => a.classList.remove('playing-item'));
+
+            if (activeCheckboxes[currentIndex]) {
+                const currentKey = activeCheckboxes[currentIndex].dataset.key;
+                const activeLink = checkedJumpListContainer.querySelector(`a[data-key="${currentKey}"]`);
+                if (activeLink) {
+                    activeLink.classList.add('playing-item');
+                    activeLink.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
+        }
+
+        function updateActiveCheckboxesList() {
+            const checkedBoxes = Array.from(listContainer.querySelectorAll('.selectable-check:checked'));
+            
+            if (isPlaying || isPaused) {
+                const currentPlayingKey = activeCheckboxes[currentIndex] ? activeCheckboxes[currentIndex].dataset.key : null;
+                activeCheckboxes = checkedBoxes;
+                
+                if (currentPlayingKey) {
+                    const newIndex = activeCheckboxes.findIndex(chk => chk.dataset.key === currentPlayingKey);
+                    if (newIndex !== -1) {
+                        currentIndex = newIndex;
+                    }
+                }
+            } else {
+                activeCheckboxes = checkedBoxes;
+                currentIndex = 0;
+            }
+            updateProgressCounter();
+        }
+
+        function updateProgressCounter() {
+            if (!activeCheckboxes || activeCheckboxes.length === 0) {
+                progressCounter.textContent = "0項目目 / 0項目中";
+                return;
+            }
+            const currentNum = (isPlaying || isPaused) ? Math.min(currentIndex + 1, activeCheckboxes.length) : 0;
+            progressCounter.textContent = `${currentNum}項目目 / ${activeCheckboxes.length}項目中`;
+        }
+
+        function saveCheckedState() {
+            const checkedBoxes = listContainer.querySelectorAll('.selectable-check:checked');
+            const keys = new Array(checkedBoxes.length);
+            for (let i = 0; i < checkedBoxes.length; i++) {
+                keys[i] = checkedBoxes[i].dataset.key;
+            }
+            checkedState[currentLawKey] = keys;
+            localStorage.setItem('roppo_checked_state_v3', JSON.stringify(checkedState));
+            saveToCloud();
+        }
+
+        function switchTab(key) {
+            if (currentLawKey === key) return;
+            saveCurrentPlayingPosition();
+            stopSpeech();
+            currentLawKey = key;
+
+            renderTabs();
+            
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    renderArticles();
+                }, 0);
+            });
+        }
+
+        document.getElementById('btn-select-all').addEventListener('click', () => {
+            const checkboxes = listContainer.querySelectorAll('.selectable-check');
+            if (checkboxes.length === 0) return;
+            const allChecked = Array.from(checkboxes).every(chk => chk.checked);
+            
+            const msg = allChecked ? "すべての選択を解除しますか？" : "表示中のすべての項目を選択しますか？";
+
+            if (confirm(msg)) {
+                checkboxes.forEach(chk => chk.checked = !allChecked);
+                listContainer.querySelectorAll('.parent-article-check').forEach(p => p.checked = !allChecked);
+                saveCheckedState();
+                scheduleSidebarUpdate();
+                updateActiveCheckboxesList();
+            }
+        });
+
+        document.getElementById('btn-reset-count').addEventListener('click', () => {
+            const currentLawObj = laws.find(l => l.key === currentLawKey);
+            const lawName = currentLawObj ? currentLawObj.name : currentLawKey;
+            if (confirm(`現在選択中の法律（${lawName}）の再生回数をリセットしますか？`)) {
+                playCounts[currentLawKey] = {};
+                localStorage.setItem('roppo_play_counts', JSON.stringify(playCounts));
+                saveToCloud();
+                renderArticles();
+            }
+        });
+
+        function setProgressBarRatio(ratio) {
+            const percentage = Math.max(0, Math.min(100, ratio * 100));
+            progressBar.style.width = `${percentage}%`;
+        }
+
+        progressContainer.addEventListener('click', (e) => {
+            if ((!isPlaying && !isPaused) || !currentUtteranceText) return;
+
+            const rect = progressContainer.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const ratio = clickX / rect.width;
+            
+            const targetCharIndex = Math.floor(ratio * currentUtteranceText.length);
+            
+            isPlaying = true;
+            isPaused = false;
+            updatePlayButtonUI();
+            speakUtteranceFromIndex(currentUtteranceText, targetCharIndex);
+        });
+
+        function updatePlayButtonUI() {
+            if (isPlaying) {
+                btnTogglePlay.textContent = "❚❚";
+                btnTogglePlay.className = "btn-player btn-player-toggle playing";
+                btnTogglePlay.title = "一時停止";
+            } else if (isPaused) {
+                btnTogglePlay.textContent = "▶";
+                btnTogglePlay.className = "btn-player btn-player-toggle paused";
+                btnTogglePlay.title = "再開";
+            } else {
+                btnTogglePlay.textContent = "▶";
+                btnTogglePlay.className = "btn-player btn-player-toggle";
+                btnTogglePlay.title = "再生";
+            }
+        }
+
+        function togglePlayStop() {
+            if (isPlaying) pauseSpeech();
+            else if (isPaused) resumeSpeech();
+            else startPlayback();
+        }
+
+        function startPlayback() {
+            activeCheckboxes = Array.from(listContainer.querySelectorAll('.selectable-check:checked'));
+            if (activeCheckboxes.length === 0) {
+                alert("読み上げたい項や号のチェックボックスを選択してください。");
+                return;
+            }
+
+            isPlaying = true;
+            isPaused = false;
+
+            const lastListenedKey = lastListenedMap[currentLawKey];
+            if (lastListenedKey) {
+                const targetIndex = activeCheckboxes.findIndex(chk => chk.dataset.key === lastListenedKey);
+                if (targetIndex !== -1) {
+                    currentIndex = targetIndex;
+                } else {
+                    currentIndex = 0;
+                }
+            } else {
+                currentIndex = 0;
+            }
+
+            updatePlayButtonUI();
+            playCurrentItem();
+        }
+
+        function pauseSpeech() {
+            isPlaying = false;
+            isPaused = true;
+            isManualCancel = true;
+            synth.cancel();
+            updatePlayButtonUI();
+        }
+
+        function resumeSpeech() {
+            if (currentUtteranceText) {
+                isPlaying = true;
+                isPaused = false;
+                updatePlayButtonUI();
+                speakUtteranceFromIndex(currentUtteranceText, currentTextPosition);
+            } else {
+                startPlayback();
+            }
+        }
+
+        function playSingleItem(targetKey) {
+            const selection = window.getSelection();
+            if (selection && selection.toString().length > 0) return;
+
+            const targetChk = listContainer.querySelector(`.selectable-check[data-key="${targetKey}"]`);
+            if (!targetChk) return;
+
+            const checkedBoxes = Array.from(listContainer.querySelectorAll('.selectable-check:checked'));
+            let startIdx = checkedBoxes.findIndex(chk => chk.dataset.key === targetKey);
+
+            if (startIdx !== -1) {
+                activeCheckboxes = checkedBoxes;
+                currentIndex = startIdx;
+            } else {
+                const allBoxes = Array.from(listContainer.querySelectorAll('.selectable-check'));
+                const targetAllIdx = allBoxes.findIndex(chk => chk.dataset.key === targetKey);
+                
+                activeCheckboxes = allBoxes.slice(targetAllIdx).filter(chk => chk.checked || chk.dataset.key === targetKey);
+                currentIndex = 0;
+            }
+
+            isPlaying = true;
+            isPaused = false;
+            updatePlayButtonUI();
+            playCurrentItem();
+        }
+
+        function playCurrentItem() {
+            if (currentIndex < 0 || currentIndex >= activeCheckboxes.length) {
+                stopSpeech();
+                return;
+            }
+
+            const chk = activeCheckboxes[currentIndex];
+            const key = chk.dataset.key;
+            const speechText = chk.dataset.text;
+            const element = document.getElementById(`elem-${key}`);
+
+            saveCurrentPlayingPosition();
+
+            const activeElems = listContainer.getElementsByClassName('playing');
+            while(activeElems.length > 0) {
+                activeElems[0].classList.remove('playing');
+            }
+            
+            if (element) {
+                element.classList.add('playing');
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+
+            highlightSidebarItem();
+            updateProgressCounter();
+
+            speakUtteranceFromIndex(speechText, 0);
+        }
+
+        function speakUtteranceFromIndex(fullText, startIndex = 0) {
+            isManualCancel = true;
+            synth.cancel();
+
+            currentUtteranceText = fullText;
+            currentTextPosition = startIndex;
+
+            const textToSpeak = fullText.substring(startIndex);
+
+            setTimeout(() => {
+                isManualCancel = false;
+
+                const utterance = new SpeechSynthesisUtterance(textToSpeak);
+                utterance.lang = 'ja-JP';
+                utterance.volume = parseFloat(volumeRange.value);
+                utterance.rate = parseFloat(rateRange.value);
+                utterance.pitch = parseFloat(pitchRange.value);
+
+                setProgressBarRatio(startIndex / fullText.length);
+
+                utterance.onboundary = (event) => {
+                    currentTextPosition = startIndex + event.charIndex;
+                    setProgressBarRatio(currentTextPosition / fullText.length);
+                };
+
+                utterance.onend = () => {
+                    if (isManualCancel) return;
+                    setProgressBarRatio(1.0);
+
+                    if (activeCheckboxes[currentIndex]) {
+                        incrementPlayCount(activeCheckboxes[currentIndex].dataset.key);
+                    }
+
+                    if (isPlaying) {
+                        currentIndex++;
+                        playCurrentItem();
+                    }
+                };
+
+                utterance.onerror = () => {
+                    if (isManualCancel) return;
+                    if (isPlaying) {
+                        currentIndex++;
+                        playCurrentItem();
+                    }
+                };
+
+                synth.speak(utterance);
+            }, 10);
+        }
+
+        function stopSpeech() {
+            isPlaying = false;
+            isPaused = false;
+            isManualCancel = true;
+            synth.cancel();
+            updatePlayButtonUI();
+            setProgressBarRatio(0);
+            currentTextPosition = 0;
+            
+            const activeElems = listContainer.getElementsByClassName('playing');
+            while(activeElems.length > 0) {
+                activeElems[0].classList.remove('playing');
+            }
+
+            const sidebarLinks = checkedJumpListContainer.querySelectorAll('a');
+            sidebarLinks.forEach(a => a.classList.remove('playing-item'));
+            updateProgressCounter();
+        }
+
+        function skipPrev() {
+            if ((!isPlaying && !isPaused) || activeCheckboxes.length === 0) return;
+            if (currentIndex > 0) {
+                currentIndex--;
+                isPlaying = true;
+                isPaused = false;
+                updatePlayButtonUI();
+                playCurrentItem();
+            }
+        }
+
+        function skipNext() {
+            if ((!isPlaying && !isPaused) || activeCheckboxes.length === 0) return;
+            if (currentIndex < activeCheckboxes.length - 1) {
+                currentIndex++;
+                isPlaying = true;
+                isPaused = false;
+                updatePlayButtonUI();
+                playCurrentItem();
+            } else {
+                stopSpeech();
+            }
+        }
+
+        btnTogglePlay.addEventListener('click', togglePlayStop);
+        document.getElementById('btn-prev').addEventListener('click', skipPrev);
+        document.getElementById('btn-next').addEventListener('click', skipNext);
+
+        renderArticles();
+    </script>
+</body>
+</html>
